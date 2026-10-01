@@ -1,8 +1,11 @@
 """Database access: one connection pool per gunicorn worker process."""
 
-from psycopg.conninfo import make_conninfo
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from typing import Any
+
+from psycopg.conninfo import make_conninfo # pyright: ignore[reportMissingImports]
+from psycopg.rows import dict_row # pyright: ignore[reportMissingImports]
+from psycopg.types.json import Jsonb # pyright: ignore[reportMissingImports]
+from psycopg_pool import ConnectionPool # pyright: ignore[reportMissingImports]
 
 _pool = None
 
@@ -28,10 +31,35 @@ def init_pool(config):
     )
 
 
-def is_healthy():
+def is_healthy() -> bool:
     try:
         with _pool.connection() as conn:
             conn.execute("SELECT 1")
         return True
     except Exception:
         return False
+
+
+def insert_request(endpoint, params, status_code, duration_ms, response, error) -> Any:
+    """Store one history row and return it, including the generated id and created_at."""
+    # %s placeholders: psycopg sends values separately from the SQL, so no SQL injection.
+    with _pool.connection() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO requests_history
+                (endpoint, params, status_code, duration_ms, response, error)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at, endpoint, params, status_code,
+                      duration_ms, response, error
+            """,
+            (
+                endpoint,
+                Jsonb(params),
+                status_code,
+                duration_ms,
+                Jsonb(response) if response is not None else None,
+                error,
+            ),
+        ).fetchone()
+    row["created_at"] = row["created_at"].isoformat()
+    return row
