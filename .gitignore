@@ -1,0 +1,30 @@
+# Secrets: real values live only in .env, never in git
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+dist/
+
+# Terraform: state files contain sensitive data
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+
+# Vagrant: local VM state
+.vagrant/
+
+# SSH keys
+*.pem
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
