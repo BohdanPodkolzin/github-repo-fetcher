@@ -61,5 +61,57 @@ def insert_request(endpoint, params, status_code, duration_ms, response, error) 
                 error,
             ),
         ).fetchone()
+    return _serialize(row)
+
+
+def list_requests(page, per_page, status=None, status_is_null=False, req_type=None) -> Any:
+    """Return (items, total) for one page of history, newest first, without the big response column."""
+    # Only fixed SQL text is assembled here; every user value travels as a %s parameter.
+    conditions = []
+    values = []
+    if status_is_null:
+        conditions.append("status_code IS NULL")
+    elif status is not None:
+        conditions.append("status_code = %s")
+        values.append(status)
+    if req_type is not None:
+        conditions.append("endpoint = %s")
+        values.append(req_type)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    with _pool.connection() as conn:
+        total = conn.execute(
+            f"SELECT count(*) AS total FROM requests_history {where}", values
+        ).fetchone()["total"]
+        rows = conn.execute(
+            f"""
+            SELECT id, created_at, endpoint, params, status_code, duration_ms, error
+            FROM requests_history
+            {where}
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s OFFSET %s
+            """,
+            values + [per_page, (page - 1) * per_page],
+        ).fetchall()
+    return [_serialize(row) for row in rows], total
+
+
+def get_request(request_id) -> Any:
+    """Return one full history row (including response), or None if the id does not exist."""
+    with _pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, created_at, endpoint, params, status_code,
+                   duration_ms, response, error
+            FROM requests_history
+            WHERE id = %s
+            """,
+            (request_id,),
+        ).fetchone()
+    return _serialize(row) if row else None
+
+
+def _serialize(row):
+    # ISO 8601 text (e.g. 2026-10-01T18:43:51+00:00) is what JavaScript's Date parses directly.
     row["created_at"] = row["created_at"].isoformat()
     return row
